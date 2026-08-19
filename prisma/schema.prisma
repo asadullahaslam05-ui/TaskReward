@@ -1,0 +1,451 @@
+// Online Earning / Task Reward Platform — Prisma Schema
+// Database: SQLite
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USERS & AUTH
+// ============================================================
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  username       String   @unique
+  fullName       String
+  phone          String?
+  passwordHash   String
+  role           String   @default("USER") // USER | ADMIN | SUPER_ADMIN | SUPPORT | FINANCE | MODERATOR
+  status         String   @default("PAYMENT_PENDING") // PAYMENT_PENDING | ACTIVE | REJECTED | SUSPENDED | BANNED
+  riskLevel      String   @default("NORMAL") // NORMAL | WATCH | FLAGGED | SUSPENDED | BANNED
+  profileImage   String?
+  referralCode   String   @unique @default(cuid())
+  referredById   String?
+  referredBy     User?    @relation("Referrals", fields: [referredById], references: [id])
+  referrals      User[]   @relation("Referrals")
+  referredByEarning ReferralEarning? @relation("ReferredUser")
+
+  // Wallet fields (authoritative source of truth, updated only server-side)
+  balance         Float    @default(0)
+  pendingBalance  Float    @default(0)
+  totalEarned     Float    @default(0)
+  totalWithdrawn  Float    @default(0)
+
+  // Internal admin notes
+  adminNotes      String?
+
+  // Account flags
+  flagged         Boolean  @default(false)
+  flaggedReason   String?
+
+  lastLoginAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  registrationPayments RegistrationPayment[]
+  tasksCreated         Task[]               @relation("TaskCreator")
+  taskSubmissions      TaskSubmission[]
+  walletTransactions   WalletTransaction[]
+  withdrawals          Withdrawal[]
+  payoutAccounts       PayoutAccount[]
+  notifications        Notification[]
+  supportTickets       SupportTicket[]
+  supportMessages      SupportMessage[]
+  auditLogs            AdminAuditLog[]
+  referralsEarned      ReferralEarning[] @relation("ReferrerEarnings")
+  userBonuses          UserBonus[]
+  userLimits           UserLimit?
+
+  @@index([status])
+  @@index([role])
+  @@index([referredById])
+}
+
+// ============================================================
+// SITE SETTINGS (configuration-driven, no hard-coded business values)
+// ============================================================
+
+model SiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  category  String   @default("GENERAL") // GENERAL | BRANDING | REGISTRATION | PAYMENTS | TASKS | REWARDS | WITHDRAWALS | SECURITY | NOTIFICATIONS | CONTENT | SEO | MAINTENANCE | SUPPORT
+  type      String   @default("STRING") // STRING | NUMBER | BOOLEAN | JSON | TEXT
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+// ============================================================
+// PAYMENT METHODS (Easypaisa, JazzCash, Binance — admin configurable)
+// ============================================================
+
+model PaymentMethod {
+  id             String   @id @default(cuid())
+  code           String   @unique // EASYPAISA | JAZZCASH | BINANCE
+  name           String
+  description    String?
+  enabled        Boolean  @default(true)
+  accountName    String?
+  accountNumber  String?
+  walletAddress  String?
+  network        String?
+  qrCodeUrl      String?
+  instructions   String?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  registrationPayments RegistrationPayment[]
+  withdrawals          Withdrawal[]
+  payoutAccounts       PayoutAccount[]
+}
+
+// ============================================================
+// REGISTRATION PAYMENTS (paid registration with manual verification)
+// ============================================================
+
+model RegistrationPayment {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentMethodId  String
+  paymentMethod    PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+  senderName       String
+  senderAccount    String
+  transactionId    String
+  amount           Float
+  paymentDate      DateTime
+  screenshotUrl    String
+  note             String?
+  status           String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  adminNote        String?
+  reviewedById     String?
+  reviewedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}
+
+// ============================================================
+// TASK CATEGORIES & TASKS
+// ============================================================
+
+model TaskCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  tasks       Task[]
+}
+
+model Task {
+  id                  String   @id @default(cuid())
+  title               String
+  platform            String   @default("TikTok")
+  type                String   // LIKE | FOLLOW | COMMENT | WATCH | OTHER
+  targetUrl           String
+  profileUrl          String?
+  instructions        String
+  reward              Float
+  status              String   @default("DRAFT") // DRAFT | ACTIVE | PAUSED | ARCHIVED
+  maxCompletions      Int      @default(0) // 0 = unlimited
+  currentCompletions  Int      @default(0)
+  startDate           DateTime?
+  endDate             DateTime?
+  categoryId          String?
+  category            TaskCategory? @relation(fields: [categoryId], references: [id])
+  screenshotRequired  Boolean  @default(true)
+  textProofRequired   Boolean  @default(false)
+  linkProofRequired   Boolean  @default(false)
+  priority            Int      @default(0)
+  visibility          String   @default("PUBLIC") // PUBLIC | PRIVATE
+  dailyLimit          Int      @default(0) // 0 = unlimited per user
+  estimatedTime       String   @default("2-3 min")
+  createdById         String
+  createdBy           User     @relation("TaskCreator", fields: [createdById], references: [id])
+  submissions         TaskSubmission[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([status])
+  @@index([platform])
+  @@index([categoryId])
+}
+
+// ============================================================
+// TASK SUBMISSIONS (user proof submission + admin approval)
+// ============================================================
+
+model TaskSubmission {
+  id             String   @id @default(cuid())
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  screenshotUrl  String?
+  textProof      String?
+  linkProof      String?
+  status         String   @default("PENDING") // PENDING | APPROVED | REJECTED | FLAGGED
+  adminNote      String?
+  ipAddress      String?
+  deviceInfo     String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  rewardCredited Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([taskId, userId]) // prevent duplicate submissions per task
+  @@index([status])
+  @@index([userId])
+}
+
+// ============================================================
+// WALLET TRANSACTIONS (immutable ledger)
+// ============================================================
+
+model WalletTransaction {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            String   // TASK_REWARD | WITHDRAWAL | WITHDRAWAL_REVERSED | ADMIN_ADJUSTMENT | REGISTRATION_PAYMENT | BONUS | PENALTY | REFUND | REFERRAL
+  amount          Float
+  previousBalance Float
+  newBalance      Float
+  referenceId     String?
+  description     String
+  status          String   @default("COMPLETED") // PENDING | COMPLETED | REVERSED
+  createdBy       String?
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([referenceId])
+}
+
+// ============================================================
+// WITHDRAWALS
+// ============================================================
+
+model Withdrawal {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount                Float
+  fee                   Float    @default(0)
+  paymentMethodId       String
+  paymentMethod         PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+  payoutAccountId       String?
+  payoutAccountHolder   String
+  payoutAccountNumber   String
+  payoutWalletAddress   String?
+  payoutNetwork         String?
+  note                  String?
+  status                String   @default("PENDING") // PENDING | APPROVED | PROCESSING | PAID | REJECTED | CANCELLED
+  adminNote             String?
+  paymentTransactionId  String?
+  paymentProofUrl       String?
+  reviewedById          String?
+  reviewedAt            DateTime?
+  paidAt                DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}
+
+// ============================================================
+// PAYOUT ACCOUNTS (user-saved withdrawal accounts)
+// ============================================================
+
+model PayoutAccount {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentMethodId  String
+  paymentMethod    PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+  accountHolderName String?
+  accountNumber    String?
+  walletAddress    String?
+  network          String?
+  label            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================================
+// NOTIFICATIONS (in-app)
+// ============================================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO | SUCCESS | WARNING | IMPORTANT
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+// ============================================================
+// ANNOUNCEMENTS (admin-created, shown in user dashboard)
+// ============================================================
+
+model Announcement {
+  id            String   @id @default(cuid())
+  title         String
+  message       String
+  type          String   @default("INFO") // INFO | SUCCESS | WARNING | IMPORTANT
+  active        Boolean  @default(true)
+  startDate     DateTime @default(now())
+  endDate       DateTime?
+  targetAudience String  @default("ALL") // ALL | ACTIVE | PENDING
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ============================================================
+// ADMIN AUDIT LOGS
+// ============================================================
+
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  adminId     String
+  admin       User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  action      String
+  targetType  String?
+  targetId    String?
+  beforeData  String?
+  afterData   String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([adminId])
+  @@index([action])
+  @@index([targetType, targetId])
+}
+
+// ============================================================
+// SUPPORT TICKETS
+// ============================================================
+
+model SupportTicket {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  category  String   @default("GENERAL") // GENERAL | PAYMENT | TASK | WITHDRAWAL | ACCOUNT | OTHER
+  priority  String   @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  status    String   @default("OPEN") // OPEN | IN_PROGRESS | WAITING | RESOLVED | CLOSED
+  messages  SupportMessage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SupportMessage {
+  id            String   @id @default(cuid())
+  ticketId      String
+  ticket        SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId      String
+  sender        User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderRole    String   // USER | ADMIN
+  message       String
+  attachmentUrl String?
+  createdAt     DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+// ============================================================
+// REFERRAL EARNINGS
+// ============================================================
+
+model ReferralEarning {
+  id           String   @id @default(cuid())
+  referrerId   String
+  referrer     User     @relation("ReferrerEarnings", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId   String
+  referred     User     @relation("ReferredUser", fields: [referredId], references: [id], onDelete: Cascade)
+  amount       Float
+  status       String   @default("PENDING") // PENDING | CREDITED | REVERSED
+  createdAt    DateTime @default(now())
+
+  @@unique([referredId])
+  @@index([referrerId])
+}
+
+// ============================================================
+// BONUS SYSTEM
+// ============================================================
+
+model Bonus {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // SIGNUP | TASK_MILESTONE | WEEKLY | REFERRAL | CUSTOM
+  amount      Float
+  active      Boolean  @default(true)
+  conditions  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userBonuses UserBonus[]
+}
+
+model UserBonus {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bonusId   String
+  bonus     Bonus    @relation(fields: [bonusId], references: [id], onDelete: Cascade)
+  amount    Float
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ============================================================
+// USER LIMITS (daily task/withdrawal tracking)
+// ============================================================
+
+model UserLimit {
+  id                       String   @id @default(cuid())
+  userId                   String   @unique
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyTaskCount           Int      @default(0)
+  dailyWithdrawalAmount    Float    @default(0)
+  lastTaskDate             DateTime?
+  lastWithdrawalDate       DateTime?
+  updatedAt                DateTime @updatedAt
+}
+
+// ============================================================
+// CONTENT PAGES (CMS-like, admin-editable)
+// ============================================================
+
+model ContentPage {
+  id        String   @id @default(cuid())
+  slug      String   @unique // about | faq | terms | privacy | refund | withdrawal-policy | task-rules | contact | help
+  title     String
+  content   String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}

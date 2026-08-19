@@ -42,7 +42,6 @@ yarn-error.log*
 .env.local
 .env.*.local
 tool-results/
-upload/
 agent-ctx/
 worklog.md
 

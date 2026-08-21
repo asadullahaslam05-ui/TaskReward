@@ -60,13 +60,12 @@ export async function PATCH(
     const SELECT = "*, user:profiles!withdrawals_user_id_fkey(*), payment_method:payment_methods!withdrawals_payment_method_id_fkey(*)";
 
     if (action === "PAID") {
-      const { data: rpcData, error: rpcErr } = await callRPC("mark_withdrawal_paid", {
-        p_withdrawal_id: id,
-        p_admin_id: adminProfile.id,
-        p_payment_transaction_id: paymentTransactionId,
-        p_payment_proof_url: paymentProofUrl,
-        p_admin_note: adminNote,
-      });
+  const { data: rpcData, error: rpcErr } = await callRPC("mark_withdrawal_paid", {
+  p_withdrawal_id: id,
+  p_admin_id: adminProfile.id,
+  p_payment_txn_id: paymentTransactionId,
+  p_payment_proof_url: paymentProofUrl,
+});
       if (rpcErr) {
         console.error("[admin/withdrawals] mark_paid RPC error:", rpcErr.message);
         return apiError(rpcErr.message || "Failed to mark withdrawal paid", 500);

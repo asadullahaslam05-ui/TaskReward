@@ -74,7 +74,7 @@ function SidebarContent({ user, settings, currentView, onNavigate, onSignOut }: 
         <div className="mt-3 flex items-center justify-between">
           <span className="text-xs text-muted-foreground">Balance</span>
           <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-            {settings?.currencySymbol || "Rs"} {user?.balance?.toFixed(2) || "0.00"}
+            {settings?.currencySymbol || "Rs"} {Number(user?.balance ?? 0).toFixed(2)}
           </Badge>
         </div>
       </div>

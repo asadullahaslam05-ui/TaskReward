@@ -721,7 +721,7 @@ export function AdminUserDetail() {
                             {t.description}
                           </span>,
                           <span className="text-xs font-mono" key="b">
-                            {t.newBalance.toFixed(2)}
+                            {Number(t.newBalance ?? 0).toFixed(2)}
                           </span>,
                           <StatusBadge status={t.status} key="st" />,
                           <span className="text-xs text-muted-foreground" key="d">

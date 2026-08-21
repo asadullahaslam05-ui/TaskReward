@@ -102,7 +102,7 @@ v_tx_type := CASE WHEN p_amount > 0 THEN 'ADMIN_ADJUSTMENT' ELSE 'PENALTY' END;
 INSERT INTO wallet_transactions (user_id, type, amount, balance_before, balance_after, description, status, created_by) VALUES (p_user_id, v_tx_type, p_amount, v_balance_before, v_balance_after, p_reason, 'COMPLETED', p_admin_id);
 UPDATE profiles SET balance = v_balance_after, total_earned = CASE WHEN p_amount > 0 THEN total_earned + p_amount ELSE total_earned END WHERE id = p_user_id;
 UPDATE wallets SET balance = v_balance_after, total_earned = CASE WHEN p_amount > 0 THEN total_earned + p_amount ELSE total_earned END WHERE user_id = p_user_id;
-INSERT INTO notifications (user_id, title, message, type) VALUES (p_user_id, CASE WHEN p_amount > 0 THEN 'Balance Added' ELSE 'Balance Deducted' END, 'Reason: ' || p_reason, CASE WHEN p_amount > 0 THEN 'SUCCESS' ELSE 'WARNING' END);
+INSERT INTO notifications (user_id, title, message, type) VALUES (p_user_id, CASE WHEN p_amount > 0 THEN 'Balance Added' ELSE 'Balance Deducted' END, 'Reason: ' || p_reason, (CASE WHEN p_amount > 0 THEN 'SUCCESS' ELSE 'WARNING' END)::notification_type);
 RETURN jsonb_build_object('success', TRUE, 'new_balance', v_balance_after);
 END; $$ LANGUAGE plpgsql SECURITY DEFINER;
 
